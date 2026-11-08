@@ -1,8 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { pipeline } from 'node:stream/promises';
-import { Readable } from 'node:stream';
-import type { Request, Response } from 'express';
+import type { Request, Response as ExpressResponse } from 'express';
 import type { SoundEntry } from '../shared/types';
 
 // These providers own their public media hosts. Trusting the exact host avoids
@@ -14,6 +12,19 @@ const TRUSTED_AUDIO_HOSTS = new Set([
   'xeno-canto.org',
   'www.xeno-canto.org',
 ]);
+const MEMORY_CACHE_TTL_MS = 2 * 60 * 1000;
+const MAX_MEMORY_CACHE_ENTRIES = 8;
+const MAX_REMOTE_AUDIO_BYTES = 16 * 1024 * 1024;
+
+interface CachedAudio {
+  body: Buffer;
+  contentType: string;
+}
+interface CacheEntry {
+  expiresAt: number;
+  promise: Promise<CachedAudio>;
+}
+const memoryCache = new Map<string, CacheEntry>();
 
 function publicAddress(address: string): boolean {
   if (isIP(address) === 4) {
@@ -64,9 +75,124 @@ export async function publicAudioUrl(value: string): Promise<URL | null> {
   }
 }
 
+const wait = (milliseconds: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
+async function readAudioBody(body: ReadableStream<Uint8Array>): Promise<Buffer> {
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      length += next.value.byteLength;
+      if (length > MAX_REMOTE_AUDIO_BYTES) {
+        await reader.cancel();
+        throw new Error('Remote audio exceeds the temporary relay size limit.');
+      }
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, length);
+}
+
+async function fetchRemoteAudio(sound: SoundEntry, requester: typeof fetch): Promise<CachedAudio> {
+  let target = sound.audioUrl;
+  for (let redirect = 0; redirect <= 3; redirect++) {
+    const url = await publicAudioUrl(target);
+    if (!url) throw new Error(`Rejected remote audio host: ${new URL(target).hostname}`);
+    let upstream: globalThis.Response | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      upstream = await requester(url, {
+        headers: {
+          Accept: 'audio/*',
+          'User-Agent':
+            'EchoAtlas/1.0 (remote audio relay; https://github.com/Roirtur/geosoundguessr)',
+        },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(90000),
+      });
+      if (upstream.status !== 429 || attempt === 2) break;
+      await upstream.body?.cancel();
+      await wait(1000 * (attempt + 1));
+    }
+    if (!upstream) throw new Error('Remote audio request did not produce a response.');
+    if (upstream.status >= 300 && upstream.status < 400 && upstream.headers.get('location')) {
+      await upstream.body?.cancel();
+      target = new URL(upstream.headers.get('location')!, url).href;
+      continue;
+    }
+    const contentType = upstream.headers.get('content-type') || '';
+    const contentLength = Number(upstream.headers.get('content-length'));
+    if (
+      !upstream.ok ||
+      !upstream.body ||
+      !/audio|ogg|octet-stream/i.test(contentType) ||
+      (Number.isFinite(contentLength) && contentLength > MAX_REMOTE_AUDIO_BYTES)
+    ) {
+      await upstream.body?.cancel();
+      throw new Error(
+        `Upstream ${url.hostname} returned ${upstream.status} (${contentType || 'no content type'}).`,
+      );
+    }
+    return { body: await readAudioBody(upstream.body), contentType };
+  }
+  throw new Error('Remote audio redirected too many times.');
+}
+
+function cacheKey(sound: SoundEntry): string {
+  return `${sound.provider}:${sound.providerId}:${sound.audioUrl}`;
+}
+
+function cachedRemoteAudio(sound: SoundEntry, requester: typeof fetch): Promise<CachedAudio> {
+  const now = Date.now();
+  for (const [key, entry] of memoryCache) if (entry.expiresAt <= now) memoryCache.delete(key);
+  const key = cacheKey(sound);
+  const existing = memoryCache.get(key);
+  if (existing) return existing.promise;
+  while (memoryCache.size >= MAX_MEMORY_CACHE_ENTRIES)
+    memoryCache.delete(memoryCache.keys().next().value!);
+  const entry: CacheEntry = {
+    expiresAt: now + MEMORY_CACHE_TTL_MS,
+    promise: fetchRemoteAudio(sound, requester),
+  };
+  memoryCache.set(key, entry);
+  entry.promise.catch(() => {
+    if (memoryCache.get(key) === entry) memoryCache.delete(key);
+  });
+  return entry.promise;
+}
+
+function rangeFor(
+  bodyLength: number,
+  raw: string | undefined,
+): { start: number; end: number } | null {
+  if (!raw) return { start: 0, end: bodyLength - 1 };
+  const match = /^bytes=(\d*)-(\d*)$/.exec(raw);
+  if (!match || (!match[1] && !match[2])) return null;
+  if (!match[1]) {
+    const suffixLength = Number(match[2]);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return null;
+    return { start: Math.max(0, bodyLength - suffixLength), end: bodyLength - 1 };
+  }
+  const start = Number(match[1]);
+  const end = match[2] ? Math.min(Number(match[2]), bodyLength - 1) : bodyLength - 1;
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    start > end ||
+    start >= bodyLength
+  )
+    return null;
+  return { start, end };
+}
+
 export async function relayAudio(
   req: Request,
-  res: Response,
+  res: ExpressResponse,
   sound: SoundEntry,
   requester: typeof fetch = fetch,
 ): Promise<void> {
@@ -75,68 +201,31 @@ export async function relayAudio(
     res.sendStatus(416);
     return;
   }
-  const abort = new AbortController();
-  res.on('close', () => abort.abort());
-  let target = sound.audioUrl;
-  const targetHost = () => {
-    try {
-      return new URL(target).hostname;
-    } catch {
-      return 'invalid host';
-    }
-  };
   try {
-    for (let redirect = 0; redirect <= 3; redirect++) {
-      const url = await publicAudioUrl(target);
-      if (!url) {
-        console.warn(`[audio-relay] Rejected remote audio host: ${targetHost()}`);
-        res.sendStatus(502);
-        return;
-      }
-      const headers: Record<string, string> = {
-        Accept: 'audio/*',
-        'User-Agent': 'EchoAtlas/1.0 (remote audio relay)',
-      };
-      if (range) headers.Range = range;
-      const upstream = await requester(url, {
-        headers,
-        redirect: 'manual',
-        signal: AbortSignal.any([abort.signal, AbortSignal.timeout(90000)]),
-      });
-      if (upstream.status >= 300 && upstream.status < 400 && upstream.headers.get('location')) {
-        await upstream.body?.cancel();
-        target = new URL(upstream.headers.get('location')!, url).href;
-        continue;
-      }
-      if (
-        ![200, 206].includes(upstream.status) ||
-        !upstream.body ||
-        !/audio|ogg|octet-stream/i.test(upstream.headers.get('content-type') || '')
-      ) {
-        console.warn(
-          `[audio-relay] Upstream ${targetHost()} returned ${upstream.status} (${upstream.headers.get('content-type') || 'no content type'}).`,
-        );
-        await upstream.body?.cancel();
-        res.sendStatus(502);
-        return;
-      }
-      res.status(upstream.status);
-      res.setHeader('Cache-Control', 'private, no-store');
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      for (const header of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
-        const value = upstream.headers.get(header);
-        if (value) res.setHeader(header, value);
-      }
-      await pipeline(
-        Readable.fromWeb(upstream.body as unknown as import('node:stream/web').ReadableStream),
-        res,
-      );
+    const audio = await cachedRemoteAudio(sound, requester);
+    const selectedRange = rangeFor(audio.body.length, range);
+    if (!selectedRange) {
+      res.setHeader('Content-Range', `bytes */${audio.body.length}`);
+      res.sendStatus(416);
       return;
     }
-    res.sendStatus(502);
+    const { start, end } = selectedRange;
+    const partial = !!range;
+    res.status(partial ? 206 : 200);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Type', audio.contentType);
+    res.setHeader('Content-Length', end - start + 1);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (partial) res.setHeader('Content-Range', `bytes ${start}-${end}/${audio.body.length}`);
+    if (req.method === 'HEAD') {
+      res.end();
+      return;
+    }
+    res.end(audio.body.subarray(start, end + 1));
   } catch (error) {
     console.warn(
-      `[audio-relay] Request to ${targetHost()} failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+      `[audio-relay] ${error instanceof Error ? error.message : 'Unknown remote audio error.'}`,
     );
     if (!res.headersSent && !res.destroyed) res.sendStatus(502);
     else if (!res.destroyed) res.destroy();
