@@ -400,7 +400,9 @@ export class SoundPool {
     }
     if (available.length < count)
       throw new Error(
-        `Only ${available.length} geographically documented recordings are available for ${count} rounds. Discover more in Admin or choose fewer rounds.`,
+        mode === 'curated'
+          ? `Only ${available.length} approved recordings are available for ${count} rounds. Choose Casual mode to use geographically documented provisional recordings.`
+          : `Only ${available.length} geographically documented recordings are currently available for ${count} rounds. Choose fewer rounds or try again later.`,
       );
     const selected = selectSoundSequence(available, count, this.recentIds);
     this.recentIds = [...this.recentIds, ...selected.map(recordingKey)].slice(-40);

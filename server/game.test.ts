@@ -181,6 +181,6 @@ describe('multiplayer room state', () => {
     expect(view().playbackUrl).toMatch(/^\/api\/audio\//);
     vi.advanceTimersByTime(15000);
     expect(view().phase).toBe('lobby');
-    expect(view().error).toMatch(/Audio playback failed/);
+    expect(view().error).toMatch(/remote recordings could not be played/);
   });
 });

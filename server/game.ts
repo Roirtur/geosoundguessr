@@ -457,7 +457,7 @@ export class GameEngine {
     if (!replacement) {
       room.phase = 'lobby';
       room.error =
-        'Audio playback failed and no replacement recording is available. Discover more sounds in Admin.';
+        'The available remote recordings could not be played. Please try starting the match again.';
       this.emit(room);
       return fail(room.error);
     }
