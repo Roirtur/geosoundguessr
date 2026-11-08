@@ -8,6 +8,7 @@ export const EVENTS = {
   start: 'game:start',
   ready: 'audio:ready',
   audioFailed: 'audio:failed',
+  hint: 'hint:vote',
   confirm: 'guess:confirm',
   advance: 'game:advance',
   playAgain: 'game:again',

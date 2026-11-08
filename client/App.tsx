@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Headphones,
   LoaderCircle,
+  Lightbulb,
   MapPin,
   Settings2,
   Trophy,
@@ -179,6 +180,11 @@ export default function App() {
     : 30;
   const player = room?.players.find((item) => item.id === session?.playerId);
   const isHost = !!player?.isHost;
+  const connectedPlayerCount = room?.players.filter((item) => item.connected).length ?? 0;
+  const hintVoteCount =
+    room?.hintVotes.filter((id) => room.players.some((item) => item.id === id && item.connected))
+      .length ?? 0;
+  const hasHintVoted = !!session && !!room?.hintVotes.includes(session.playerId);
   const leaderboard = useMemo(
     () =>
       [...(room?.players ?? [])].sort(
@@ -532,6 +538,31 @@ export default function App() {
                 )}
               </div>
             ))}
+            <div className="hint-panel" aria-live="polite">
+              <span className="label">
+                <Lightbulb size={14} /> GROUP HINT
+              </span>
+              {room.hint ? (
+                <p className="hint-reveal">{room.hint}</p>
+              ) : (
+                <>
+                  <p>
+                    A very broad geographic clue appears only after every connected player votes.
+                  </p>
+                  <button
+                    className="hint-button"
+                    disabled={room.phase !== 'guessing' || hasHintVoted || busy}
+                    onClick={() => action(EVENTS.hint)}
+                  >
+                    <Lightbulb size={15} />
+                    {hasHintVoted ? 'Vote registered' : 'Request broad hint'}
+                  </button>
+                  <small>
+                    {hintVoteCount} / {connectedPlayerCount} voted
+                  </small>
+                </>
+              )}
+            </div>
           </div>
           <div className="globe-hint">
             DRAG TO ROTATE <span>·</span> SCROLL TO ZOOM <span>·</span> CLICK LAND TO GUESS

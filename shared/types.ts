@@ -85,6 +85,8 @@ export interface RoomView {
   deadline?: number;
   preparationDeadline?: number;
   playbackUrl?: string;
+  hintVotes: string[];
+  hint?: string;
   reveal?: RevealView;
   mode: 'casual' | 'curated';
   error?: string;

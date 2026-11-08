@@ -13,7 +13,7 @@ npm run dev
 
 Open **http://localhost:5173**. No audio API key is required. Vite serves the frontend on port 5173 and proxies the API and Socket.IO to port 3001. For a second device on the same LAN, open `http://YOUR_COMPUTER_LAN_IP:5173`. Copy `.env.example` to `.env` only to customize settings. An optional `XENO_CANTO_API_KEY` enables Xeno-canto wildlife recordings; keep it on the server.
 
-Create a room, share its five-character code, choose the number of rounds and press **Start listening**. The same sound is prepared for all players. The server starts a 30-second deadline after readiness; browsers may require a click on **Play**. Drag or pinch to rotate Earth, click land to place a precise guess, then confirm. The server reveals the source, location, guesses and points after everyone confirms or time expires. Results advance after about eight seconds. The host can start another match in the same room.
+Create a room, share its five-character code, choose the number of rounds and press **Start listening**. The same sound is prepared for all players. The server starts a 30-second deadline after readiness; browsers may require a click on **Play**. Drag or pinch to rotate Earth, click land to place a precise guess, then confirm. During guessing, every connected player may vote for one broad hint. The server reveals it to everyone only after unanimous consent; it contains only a hemisphere and a wide latitude band. The server reveals the source, location, guesses and points after everyone confirms or time expires. Results advance after about eight seconds. The host can start another match in the same room.
 
 ## Audio providers and locations
 

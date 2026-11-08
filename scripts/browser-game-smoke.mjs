@@ -124,6 +124,18 @@ try {
     alice.locator('.app-guessing').waitFor({ timeout: 25000 }),
     bob.locator('.app-guessing').waitFor({ timeout: 25000 }),
   ]);
+  await alice.getByRole('button', { name: 'Request broad hint' }).click();
+  await bob.getByText('1 / 2 voted').waitFor();
+  assert.equal(await alice.locator('.hint-reveal').count(), 0);
+  await bob.getByRole('button', { name: 'Request broad hint' }).click();
+  await Promise.all([
+    alice.locator('.hint-reveal').waitFor(),
+    bob.locator('.hint-reveal').waitFor(),
+  ]);
+  const hintA = await alice.locator('.hint-reveal').textContent();
+  const hintB = await bob.locator('.hint-reveal').textContent();
+  assert.equal(hintA, hintB);
+  assert(!/Japan|Tokyo/i.test(hintA), 'The broad hint exposed a precise answer.');
   await alice.screenshot({ path: join(tmpdir(), 'echo-atlas-game-guessing.png') });
   const placeGuess = async (page) => {
     for (const [x, y] of [

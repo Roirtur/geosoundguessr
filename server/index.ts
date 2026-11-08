@@ -258,6 +258,9 @@ io.on('connection', (socket) => {
   socket.on(EVENTS.audioFailed, (payload, ack) =>
     ack?.(game.audioFailed(payload?.code, payload?.playerId, socket.id, payload?.src)),
   );
+  socket.on(EVENTS.hint, (payload, ack) =>
+    ack?.(game.hint(payload?.code, payload?.playerId, socket.id)),
+  );
   socket.on(EVENTS.confirm, (payload, ack) =>
     ack?.(game.confirm(payload?.code, payload?.playerId, socket.id, payload?.location)),
   );

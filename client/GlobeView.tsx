@@ -34,7 +34,7 @@ function GlobeView({ phase, selected, reveal, players = [], disabled, onSelect }
   const host = useRef<HTMLDivElement>(null);
   const globe = useRef<GlobeMethods | undefined>(undefined);
   const [size, setSize] = useState({ width: 1000, height: 800 });
-  const [hovered, setHovered] = useState<string>();
+  const [hoveredCountry, setHoveredCountry] = useState<string>();
 
   useEffect(() => {
     if (!host.current) return;
@@ -125,11 +125,13 @@ function GlobeView({ phase, selected, reveal, players = [], disabled, onSelect }
         polygonGeoJsonGeometry="geometry"
         polygonCapColor={(raw) => {
           const country = raw as Country;
-          if (phase === 'results' && reveal?.answer.countryCode === country.id)
+          if (phase === 'results' && reveal?.answer.countryName === country.properties.name)
             return 'rgba(255,198,92,0.36)';
-          if (selected?.countryCode === country.id && phase === 'guessing')
+          if (selected?.countryName === country.properties.name && phase === 'guessing')
             return 'rgba(56,232,233,0.38)';
-          return hovered === country.id ? 'rgba(88,193,237,0.3)' : 'rgba(44,125,174,0.055)';
+          return hoveredCountry === country.properties.name
+            ? 'rgba(88,193,237,0.3)'
+            : 'rgba(44,125,174,0.055)';
         }}
         polygonSideColor={() => 'rgba(41,134,195,0.08)'}
         polygonStrokeColor={() => 'rgba(116,195,226,0.5)'}
@@ -137,7 +139,10 @@ function GlobeView({ phase, selected, reveal, players = [], disabled, onSelect }
         polygonCapCurvatureResolution={10}
         polygonsTransitionDuration={0}
         polygonLabel={(raw) => (raw as Country).properties.name}
-        onPolygonHover={(raw) => setHovered(raw ? (raw as Country).id : undefined)}
+        onPolygonHover={(raw) => {
+          const next = raw ? (raw as Country).properties.name : undefined;
+          setHoveredCountry((current) => (current === next ? current : next));
+        }}
         onPolygonClick={select}
         onGlobeClick={(coords, event) => select({}, event, coords)}
         pointsData={markers}

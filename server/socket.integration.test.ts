@@ -187,6 +187,22 @@ describe('real Socket.IO transport with mocked metadata', () => {
         (room) => room.phase === 'guessing' && room.currentRound === round,
       );
       expect(guessing.deadline).toBeGreaterThan(guessing.serverNow);
+      if (round === 1) {
+        expect((await aliceSocket.emitWithAck(EVENTS.hint, { code, playerId: alice })).ok).toBe(
+          true,
+        );
+        const pendingHint = await waitFor(
+          bobSocket,
+          (room) => room.phase === 'guessing' && room.hintVotes.includes(alice),
+        );
+        expect(pendingHint.hint).toBeUndefined();
+        expect((await bobSocket.emitWithAck(EVENTS.hint, { code, playerId: bob })).ok).toBe(true);
+        const [hintA, hintB] = await Promise.all([
+          waitFor(aliceSocket, (room) => !!room.hint),
+          waitFor(bobSocket, (room) => !!room.hint),
+        ]);
+        expect(hintA.hint).toBe(hintB.hint);
+      }
       expect(
         (
           await aliceSocket.emitWithAck(EVENTS.confirm, {

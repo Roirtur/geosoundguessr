@@ -35,6 +35,8 @@ interface Room {
   usedSounds: Set<string>;
   mode: 'casual' | 'curated';
   ready: Set<string>;
+  hintVotes: Set<string>;
+  hint?: string;
   guesses: Map<string, GuessView>;
   deadline?: number;
   preparationDeadline?: number;
@@ -119,6 +121,8 @@ export class GameEngine {
         room.sound && room.audioToken && ['preparing', 'guessing'].includes(room.phase)
           ? `/api/audio/${room.code}/${room.audioToken}`
           : undefined,
+      hintVotes: [...room.hintVotes],
+      hint: room.hint,
       reveal: room.reveal,
       mode: room.mode,
       error: room.error,
@@ -166,6 +170,7 @@ export class GameEngine {
       usedSounds: new Set(),
       mode: 'casual',
       ready: new Set(),
+      hintVotes: new Set(),
       guesses: new Map(),
       preparationAttempts: 0,
     };
@@ -208,6 +213,7 @@ export class GameEngine {
       const player = [...room.players.values()].find((p) => p.socketId === socketId);
       if (!player) continue;
       player.socketId = null;
+      this.maybeRevealHint(room);
       this.migrateHost(room);
       if (room.phase === 'guessing' && this.allConfirmed(room)) this.finishRound(room);
       this.emit(room);
@@ -219,6 +225,7 @@ export class GameEngine {
     const { room } = actor;
     room.players.delete(playerId);
     room.ready.delete(playerId);
+    room.hintVotes.delete(playerId);
     room.guesses.delete(playerId);
     if (room.players.size === 0) {
       this.clearTimer(room);
@@ -226,6 +233,7 @@ export class GameEngine {
       return ok();
     }
     this.migrateHost(room);
+    this.maybeRevealHint(room);
     if (room.phase === 'preparing' && this.allReady(room)) this.startCountdown(room);
     if (room.phase === 'guessing' && this.allConfirmed(room)) this.finishRound(room);
     this.emit(room);
@@ -301,6 +309,8 @@ export class GameEngine {
     room.sound = room.sounds[room.roundIndex];
     room.audioToken = randomUUID();
     room.ready.clear();
+    room.hintVotes.clear();
+    room.hint = undefined;
     room.guesses.clear();
     room.reveal = undefined;
     room.deadline = undefined;
@@ -335,6 +345,37 @@ export class GameEngine {
     room.deadline = this.now() + 30000;
     this.emit(room);
     room.timer = setTimeout(() => this.finishRound(room), 30000);
+  }
+  hint(code: string, playerId: string, socketId: string): ActionResult {
+    const actor = this.actor(code, playerId, socketId);
+    if (!actor) return fail('Player session not found.');
+    const { room } = actor;
+    if (room.phase !== 'guessing' || !room.sound)
+      return fail('Hints are available while guessing.');
+    if (room.hint) return ok();
+    room.hintVotes.add(playerId);
+    this.maybeRevealHint(room);
+    this.emit(room);
+    return ok();
+  }
+  private maybeRevealHint(room: Room): void {
+    if (room.phase !== 'guessing' || room.hint || !room.sound) return;
+    const connected = [...room.players.values()].filter((player) => player.socketId);
+    if (!connected.length || !connected.every((player) => room.hintVotes.has(player.id))) return;
+    const latitude = room.sound.latitude;
+    const hemisphere =
+      Math.abs(latitude) < 8
+        ? 'near the equator'
+        : latitude > 0
+          ? 'in the Northern Hemisphere'
+          : 'in the Southern Hemisphere';
+    const band =
+      Math.abs(latitude) < 24
+        ? 'within the broad tropical belt'
+        : Math.abs(latitude) < 60
+          ? 'within the broad mid-latitude belt'
+          : 'within the broad high-latitude belt';
+    room.hint = `Think very broadly: the origin is ${hemisphere}, ${band}.`;
   }
   confirm(code: string, playerId: string, socketId: string, location: unknown): ActionResult {
     const actor = this.actor(code, playerId, socketId);
@@ -453,6 +494,8 @@ export class GameEngine {
     room.roundIndex = 0;
     room.sounds = [];
     room.sound = undefined;
+    room.hintVotes.clear();
+    room.hint = undefined;
     room.reveal = undefined;
     room.error = undefined;
     room.players.forEach((player) => {

@@ -99,6 +99,21 @@ describe('multiplayer room state', () => {
     expect(view().reveal?.guesses).toHaveLength(1);
     expect(view().players[1].totalScore).toBe(0);
   });
+  it('reveals a broad hint only after every connected player votes', async () => {
+    const { game, alice, bob, code, view, start } = setup();
+    await start();
+    expect(view().hint).toBeUndefined();
+    expect(game.hint(code, alice.playerId, 'socket-a').ok).toBe(true);
+    expect(view().hintVotes).toEqual([alice.playerId]);
+    expect(view().hint).toBeUndefined();
+    expect(game.hint(code, alice.playerId, 'socket-a').ok).toBe(true);
+    expect(view().hintVotes).toHaveLength(1);
+    expect(game.hint(code, bob.playerId, 'socket-b').ok).toBe(true);
+    expect(view().hint).toMatch(/Northern Hemisphere/);
+    expect(view().hint).toMatch(/mid-latitude/);
+    expect(view().hint).not.toMatch(/France|Paris|Europe/i);
+    expect(view().reveal).toBeUndefined();
+  });
   it('accumulates across rounds, produces a deterministic leaderboard and resets replay', async () => {
     const { game, alice, bob, code, view, start } = setup();
     await start(2);
