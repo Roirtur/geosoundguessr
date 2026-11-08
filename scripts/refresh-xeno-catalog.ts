@@ -42,7 +42,7 @@ async function main(): Promise<void> {
 
   for (let page = 1; page <= PAGES; page++) {
     const pageResults = await provider.searchSounds({
-      query: 'q:A',
+      query: 'q:>C',
       category: 'nature',
       page,
       minDuration: 12,

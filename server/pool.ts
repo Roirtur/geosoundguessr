@@ -386,7 +386,7 @@ export class SoundPool {
     for (let page = 1; page <= XENO_BOOTSTRAP_PAGES; page++) {
       try {
         const results = await provider.searchSounds({
-          query: 'q:A',
+          query: 'q:>C',
           category: 'nature',
           page,
           minDuration: 12,
