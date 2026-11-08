@@ -201,7 +201,7 @@ describe('real Socket.IO transport with mocked metadata', () => {
           waitFor(aliceSocket, (room) => !!room.hint),
           waitFor(bobSocket, (room) => !!room.hint),
         ]);
-        expect(hintA.hint).toBe(hintB.hint);
+        expect(hintA.hint).toEqual(hintB.hint);
       }
       expect(
         (

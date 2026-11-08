@@ -235,6 +235,7 @@ export default function App() {
       <GlobeView
         phase={globePhase}
         selected={selected}
+        hint={room?.hint}
         reveal={room?.reveal}
         players={room?.players}
         disabled={player?.confirmed}
@@ -434,7 +435,7 @@ export default function App() {
               <ArrowRight size={17} />
             </button>
             <p className="microcopy">
-              Real remote recordings · 30 seconds per round · exact distance scoring
+              Real remote recordings · 30 seconds per round · country-border scoring
             </p>
           </div>
           {error && (
@@ -480,7 +481,7 @@ export default function App() {
             <p>
               {room.phase === 'preparing'
                 ? 'The round begins when everyone’s audio is ready.'
-                : 'Rotate Earth, find the country, and click your exact guess.'}
+                : 'Rotate Earth and click inside the country you think fits.'}
             </p>
             <AudioPanel
               src={room.playbackUrl ? `${serverBase}${room.playbackUrl}` : undefined}
@@ -543,7 +544,7 @@ export default function App() {
                 <Lightbulb size={14} /> GROUP HINT
               </span>
               {room.hint ? (
-                <p className="hint-reveal">{room.hint}</p>
+                <p className="hint-reveal">{room.hint.text}</p>
               ) : (
                 <>
                   <p>
@@ -577,7 +578,7 @@ export default function App() {
             <h1>
               It was <em>{room.reveal.answer.countryName}.</em>
             </h1>
-            <p>The globe shows every guess and its distance from the recording.</p>
+            <p>Correct country: 100 points. Other guesses are measured to its closest border.</p>
           </div>
           <div className="results-card glass">
             <div className="result-sound">
@@ -614,7 +615,9 @@ export default function App() {
                     <strong>{p.name}</strong>
                     <span>
                       {guess
-                        ? `${Math.round(guess.distanceKm).toLocaleString()} km away`
+                        ? guess.distanceKm < 1
+                          ? 'Correct country'
+                          : `${Math.round(guess.distanceKm).toLocaleString()} km from border`
                         : 'No guess'}
                     </span>
                     <b>+{guess?.score ?? 0}</b>

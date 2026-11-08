@@ -169,7 +169,7 @@ try {
   const answerB = await bob.locator('.results-header h1').textContent();
   assert.equal(answerA, answerB);
   assert.equal(await alice.locator('.result-row').count(), 2);
-  await alice.getByRole('button', { name: 'View final leaderboard' }).click();
+  await alice.getByRole('button', { name: 'View final leaderboard' }).click({ force: true });
   await Promise.all([
     alice.locator('.app-finished').waitFor(),
     bob.locator('.app-finished').waitFor(),

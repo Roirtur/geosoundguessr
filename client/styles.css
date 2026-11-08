@@ -59,6 +59,28 @@ a {
 .globe-host canvas {
   display: block;
 }
+.globe-host.interactive canvas {
+  cursor: crosshair;
+}
+.country-hover-label {
+  position: absolute;
+  left: 50%;
+  bottom: 52px;
+  z-index: 3;
+  transform: translateX(-50%);
+  padding: 6px 11px;
+  border: 1px solid rgba(116, 220, 232, 0.38);
+  border-radius: 999px;
+  background: rgba(3, 18, 31, 0.86);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.32);
+  color: #d9f8fb;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  pointer-events: none;
+  text-transform: uppercase;
+}
 .globe-vignette {
   position: absolute;
   inset: 0;

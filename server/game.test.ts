@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { countryAt } from '../shared/geo';
+import { countryAt, haversineKm } from '../shared/geo';
 import type { RoomView, SoundEntry } from '../shared/types';
 import { GameEngine, type GameSoundSource } from './game';
 
@@ -90,6 +90,22 @@ describe('multiplayer room state', () => {
     vi.advanceTimersByTime(8000);
     expect(view().phase).toBe('finished');
   });
+  it('awards 100 anywhere in the correct country and measures misses to its border', async () => {
+    const { game, alice, bob, code, view, start } = setup();
+    const marseille = { latitude: 43.2965, longitude: 5.3698 };
+    const london = { latitude: 51.5072, longitude: -0.1276 };
+    await start();
+    expect(game.confirm(code, alice.playerId, 'socket-a', marseille).ok).toBe(true);
+    expect(game.confirm(code, bob.playerId, 'socket-b', london).ok).toBe(true);
+    const aliceGuess = view().reveal?.guesses.find((guess) => guess.playerId === alice.playerId);
+    const bobGuess = view().reveal?.guesses.find((guess) => guess.playerId === bob.playerId);
+    expect(aliceGuess?.countryName).toBe('France');
+    expect(aliceGuess?.distanceKm).toBe(0);
+    expect(aliceGuess?.score).toBe(100);
+    expect(bobGuess?.distanceKm).toBeGreaterThan(0);
+    expect(bobGuess?.distanceKm).toBeLessThan(haversineKm(london, paris));
+    expect(bobGuess?.distanceTarget).not.toEqual(paris);
+  });
   it('uses a server deadline and awards zero to an unanswered player', async () => {
     const { game, alice, code, view, start } = setup();
     await start();
@@ -109,9 +125,10 @@ describe('multiplayer room state', () => {
     expect(game.hint(code, alice.playerId, 'socket-a').ok).toBe(true);
     expect(view().hintVotes).toHaveLength(1);
     expect(game.hint(code, bob.playerId, 'socket-b').ok).toBe(true);
-    expect(view().hint).toMatch(/Northern Hemisphere/);
-    expect(view().hint).toMatch(/mid-latitude/);
-    expect(view().hint).not.toMatch(/France|Paris|Europe/i);
+    expect(view().hint?.text).toMatch(/broad search zone/i);
+    expect(view().hint?.radiusDegrees).toBe(32);
+    expect(haversineKm(view().hint!, paris)).toBeLessThan(32 * 111.2);
+    expect(JSON.stringify(view().hint)).not.toMatch(/France|Paris|Europe/i);
     expect(view().reveal).toBeUndefined();
   });
   it('accumulates across rounds, produces a deterministic leaderboard and resets replay', async () => {

@@ -1,6 +1,6 @@
 # Echo Atlas
 
-Echo Atlas is a local multiplayer sound geography game. Everyone in a room hears the same remote recording, guesses its origin on a 3D Earth, and scores points by geographic distance. Matches support 1–8 players and 1–10 rounds.
+Echo Atlas is a local multiplayer sound geography game. Everyone in a room hears the same remote recording, guesses its origin on a 3D Earth, and scores points by country and proximity. Matches support 1–8 players and 1–10 rounds.
 
 ## Run locally
 
@@ -13,7 +13,7 @@ npm run dev
 
 Open **http://localhost:5173**. No audio API key is required. Vite serves the frontend on port 5173 and proxies the API and Socket.IO to port 3001. For a second device on the same LAN, open `http://YOUR_COMPUTER_LAN_IP:5173`. Copy `.env.example` to `.env` only to customize settings. An optional `XENO_CANTO_API_KEY` enables Xeno-canto wildlife recordings; keep it on the server.
 
-Create a room, share its five-character code, choose the number of rounds and press **Start listening**. The same sound is prepared for all players. The server starts a 30-second deadline after readiness; browsers may require a click on **Play**. Drag or pinch to rotate Earth, click land to place a precise guess, then confirm. During guessing, every connected player may vote for one broad hint. The server reveals it to everyone only after unanimous consent; it contains only a hemisphere and a wide latitude band. The server reveals the source, location, guesses and points after everyone confirms or time expires. Results advance after about eight seconds. The host can start another match in the same room.
+Create a room, share its five-character code, choose the number of rounds and press **Start listening**. The same sound is prepared for all players. The server starts a 30-second deadline after readiness; browsers may require a click on **Play**. Drag or pinch to rotate Earth, click land to place a guess, then confirm. During guessing, every connected player may vote for one broad hint. After unanimous consent, everyone sees the same approximate search zone on the globe. The server reveals the source, location, guesses and points after everyone confirms or time expires. A guess anywhere inside the correct country earns 100 points; other guesses are scored by their distance to the nearest border of that country. Results advance after about eight seconds. The host can start another match in the same room.
 
 ## Audio providers and locations
 

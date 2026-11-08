@@ -54,7 +54,12 @@ export interface GuessView extends Coordinates {
   playerId: string;
   countryName: string;
   distanceKm: number;
+  distanceTarget: Coordinates;
   score: number;
+}
+export interface HintView extends Coordinates {
+  text: string;
+  radiusDegrees: number;
 }
 export interface RevealView {
   answer: Coordinates & { countryName: string; countryCode: string };
@@ -86,7 +91,7 @@ export interface RoomView {
   preparationDeadline?: number;
   playbackUrl?: string;
   hintVotes: string[];
-  hint?: string;
+  hint?: HintView;
   reveal?: RevealView;
   mode: 'casual' | 'curated';
   error?: string;

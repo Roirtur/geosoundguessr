@@ -1,9 +1,15 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { countryAt, haversineKm, scoreForDistance, validCoordinates } from '../shared/geo';
+import {
+  closestPointOnCountry,
+  countryAt,
+  scoreForDistance,
+  validCoordinates,
+} from '../shared/geo';
 import type {
   ActionResult,
   Coordinates,
   GuessView,
+  HintView,
   JoinResult,
   Phase,
   PlayerView,
@@ -36,7 +42,7 @@ interface Room {
   mode: 'casual' | 'curated';
   ready: Set<string>;
   hintVotes: Set<string>;
-  hint?: string;
+  hint?: HintView;
   guesses: Map<string, GuessView>;
   deadline?: number;
   preparationDeadline?: number;
@@ -362,20 +368,14 @@ export class GameEngine {
     if (room.phase !== 'guessing' || room.hint || !room.sound) return;
     const connected = [...room.players.values()].filter((player) => player.socketId);
     if (!connected.length || !connected.every((player) => room.hintVotes.has(player.id))) return;
-    const latitude = room.sound.latitude;
-    const hemisphere =
-      Math.abs(latitude) < 8
-        ? 'near the equator'
-        : latitude > 0
-          ? 'in the Northern Hemisphere'
-          : 'in the Southern Hemisphere';
-    const band =
-      Math.abs(latitude) < 24
-        ? 'within the broad tropical belt'
-        : Math.abs(latitude) < 60
-          ? 'within the broad mid-latitude belt'
-          : 'within the broad high-latitude belt';
-    room.hint = `Think very broadly: the origin is ${hemisphere}, ${band}.`;
+    const latitude = Math.max(-60, Math.min(60, Math.round(room.sound.latitude / 30) * 30));
+    const longitude = Math.round(room.sound.longitude / 45) * 45;
+    room.hint = {
+      latitude,
+      longitude: longitude === 180 ? -180 : longitude,
+      radiusDegrees: 32,
+      text: 'The origin is somewhere inside the broad search zone outlined on the globe.',
+    };
   }
   confirm(code: string, playerId: string, socketId: string, location: unknown): ActionResult {
     const actor = this.actor(code, playerId, socketId);
@@ -387,13 +387,16 @@ export class GameEngine {
     if (!validCoordinates(location)) return fail('Choose a valid location on land.');
     const country = countryAt(location);
     if (!country) return fail('Choose a location inside a country.');
-    const distanceKm = haversineKm(location, room.sound!);
+    const answerCountry = countryAt(room.sound!);
+    if (!answerCountry) return fail('The answer country is unavailable.');
+    const distance = closestPointOnCountry(location, answerCountry);
     room.guesses.set(playerId, {
       playerId,
       ...location,
       countryName: country.properties.name,
-      distanceKm,
-      score: scoreForDistance(distanceKm),
+      distanceKm: distance.distanceKm,
+      distanceTarget: distance.closest,
+      score: scoreForDistance(distance.distanceKm),
     });
     player.confirmed = true;
     this.emit(room);

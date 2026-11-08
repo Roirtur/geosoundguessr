@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  closestPointOnCountry,
   countryAt,
+  distanceToCountryKm,
   haversineKm,
   parseCoordinateString,
   scoreForDistance,
@@ -41,5 +43,20 @@ describe('geography and scoring', () => {
     expect(scoreForDistance(3185.5 * 0.75)).toBe(25);
     expect(scoreForDistance(3185.5)).toBe(0);
     expect(scoreForDistance(6000)).toBe(0);
+  });
+  it('measures a guess against the whole answer country and its nearest border', () => {
+    const paris = { latitude: 48.8566, longitude: 2.3522 };
+    const marseille = { latitude: 43.2965, longitude: 5.3698 };
+    const london = { latitude: 51.5072, longitude: -0.1276 };
+    const france = countryAt(paris)!;
+
+    expect(distanceToCountryKm(marseille, france)).toBe(0);
+    expect(scoreForDistance(distanceToCountryKm(marseille, france))).toBe(100);
+
+    const nearest = closestPointOnCountry(london, france);
+    expect(nearest.distanceKm).toBeGreaterThan(0);
+    expect(nearest.distanceKm).toBeLessThan(haversineKm(london, paris));
+    expect(nearest.closest.latitude).toBeGreaterThan(40);
+    expect(nearest.closest.longitude).toBeGreaterThan(-10);
   });
 });
