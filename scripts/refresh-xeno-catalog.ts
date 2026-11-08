@@ -8,8 +8,8 @@ const OUTPUT =
   process.env.SOUND_CATALOG_FILE || join(process.cwd(), 'server/data/seed-sounds.json');
 const MAX_RECORDINGS = Math.max(1, Number(process.env.XENO_CATALOG_MAX || 5000));
 const MAX_PER_COUNTRY = Math.max(1, Number(process.env.XENO_CATALOG_MAX_PER_COUNTRY || 150));
-const PAGES = Math.max(1, Number(process.env.XENO_CATALOG_PAGES || 50));
-const REQUEST_DELAY_MS = Math.max(250, Number(process.env.XENO_CATALOG_DELAY_MS || 500));
+const PAGES = Math.max(1, Number(process.env.XENO_CATALOG_PAGES || 350));
+const REQUEST_DELAY_MS = Math.max(500, Number(process.env.XENO_CATALOG_DELAY_MS || 1000));
 
 const pause = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
