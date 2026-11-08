@@ -12,7 +12,8 @@
     "test": "vitest run --config vitest.config.mjs",
     "smoke:browser": "node scripts/browser-smoke.mjs",
     "smoke:game": "node scripts/browser-game-smoke.mjs",
-    "format": "prettier --write \"client/**/*.{ts,tsx,css}\" \"server/**/*.{ts,mjs}\" \"shared/**/*.ts\" \"scripts/**/*.mjs\" vite.config.ts vitest.config.mjs index.html README.md",
+    "catalog:commons": "tsx scripts/refresh-commons-catalog.ts",
+    "format": "prettier --write \"client/**/*.{ts,tsx,css}\" \"server/**/*.{ts,mjs}\" \"shared/**/*.ts\" \"scripts/**/*.{ts,mjs}\" vite.config.ts vitest.config.mjs index.html README.md",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

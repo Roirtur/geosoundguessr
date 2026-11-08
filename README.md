@@ -31,6 +31,8 @@ The **Sound administration** link on the menu is available in development. It se
 
 Administration is disabled in production. In development it is limited to the local machine; set `ADMIN_TOKEN` to permit access from another LAN device, then enter the token in the panel. Old Freesound metadata in an existing catalog is preserved as `legacy-freesound` and excluded from gameplay. It can be inspected for migration to a live provider.
 
+The tracked `server/data/seed-sounds.json` catalog contains only metadata for geographically documented Commons recordings, never audio bytes. Run `npm run catalog:commons` to expand it locally. GitHub Actions can run the same job weekly through `.github/workflows/refresh-sound-catalog.yml`, committing new metadata to the repository for persistent, no-cost catalog growth. The server merges this seed catalog with its short-lived runtime discoveries. During a round, remote audio is held only in a bounded in-memory cache for two minutes so all players can receive the same byte ranges without repeatedly rate-limiting the upstream host; audio is never written to disk.
+
 If remote audio fails during preparation or a round, the server replaces it for the whole room up to three times. If it has no replacement, the room returns to the lobby with an error. External availability and browser codec support can change, so a larger reviewed catalog improves reliability. The server streams selected audio through a temporary endpoint, supports HTTP byte ranges, and writes no audio bytes to disk. It rejects arbitrary requested URLs and private network targets.
 
 ## Development

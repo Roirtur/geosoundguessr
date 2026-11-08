@@ -109,7 +109,10 @@ async function json(url: URL, requester: typeof fetch): Promise<Dict> {
   let response: Response;
   try {
     response = await requester(url, {
-      headers: { 'User-Agent': 'EchoAtlas/1.0 (audio metadata discovery; localhost game)' },
+      headers: {
+        'User-Agent':
+          'EchoAtlas/1.0 (https://github.com/Roirtur/geosoundguessr; contact via GitHub issues)',
+      },
       signal: AbortSignal.timeout(12000),
     });
   } catch {
@@ -184,16 +187,21 @@ export class WikimediaProvider implements AudioProvider {
     const url = new URL('https://commons.wikimedia.org/w/api.php');
     url.searchParams.set('action', 'query');
     url.searchParams.set('format', 'json');
-    url.searchParams.set('prop', 'imageinfo|coordinates');
+    url.searchParams.set('prop', 'imageinfo|coordinates|videoinfo');
     url.searchParams.set('coprop', 'type');
     url.searchParams.set('iiprop', 'url|mime|extmetadata|metadata');
+    url.searchParams.set('viprop', 'derivatives');
     return url;
   }
   private normalize(pageValue: unknown, category: SoundCategory): SoundCandidate | null {
     const page = object(pageValue),
       title = string(page.title);
     const info = object(Array.isArray(page.imageinfo) ? page.imageinfo[0] : null);
-    const audioUrl = https(info.url),
+    const videoInfo = object(Array.isArray(page.videoinfo) ? page.videoinfo[0] : null);
+    const derivative = Array.isArray(videoInfo.derivatives)
+      ? videoInfo.derivatives.find((item) => object(item).type === 'audio/mpeg')
+      : null;
+    const audioUrl = https(object(derivative).src) || https(info.url),
       mime = string(info.mime);
     const meta = object(info.extmetadata);
     const field = (key: string) => noHtml(object(meta[key]).value);
@@ -238,34 +246,6 @@ export class WikimediaProvider implements AudioProvider {
     // File coordinates are uploader supplied. They remain provisional until reviewed.
     return located;
   }
-  private async preferMp3(sounds: SoundCandidate[]): Promise<SoundCandidate[]> {
-    if (!sounds.length) return sounds;
-    const url = new URL('https://commons.wikimedia.org/w/api.php');
-    url.searchParams.set('action', 'query');
-    url.searchParams.set('format', 'json');
-    url.searchParams.set('prop', 'videoinfo');
-    url.searchParams.set('viprop', 'derivatives');
-    url.searchParams.set('titles', sounds.map((sound) => sound.providerId).join('|'));
-    try {
-      const pages = object(object(await json(url, this.requester)).query).pages;
-      const mp3 = new Map<string, string>();
-      for (const value of Object.values(object(pages))) {
-        const page = object(value);
-        const info = object(Array.isArray(page.videoinfo) ? page.videoinfo[0] : null);
-        const derivative = Array.isArray(info.derivatives)
-          ? info.derivatives.find((item) => object(item).type === 'audio/mpeg')
-          : null;
-        const audioUrl = https(object(derivative).src);
-        if (audioUrl && new URL(audioUrl).hostname === 'upload.wikimedia.org')
-          mp3.set(string(page.title), audioUrl);
-      }
-      return sounds.map((sound) =>
-        mp3.has(sound.providerId) ? { ...sound, audioUrl: mp3.get(sound.providerId)! } : sound,
-      );
-    } catch {
-      return sounds;
-    }
-  }
   async getSounds(
     ids: readonly string[],
     categories: Record<string, SoundCategory> = {},
@@ -277,7 +257,7 @@ export class WikimediaProvider implements AudioProvider {
     const sounds = Object.values(object(pages))
       .map((page) => this.normalize(page, categories[string(object(page).title)] || 'other'))
       .filter((item): item is SoundCandidate => !!item);
-    return this.preferMp3(sounds);
+    return sounds;
   }
   async getSound(id: string): Promise<SoundCandidate | null> {
     return (await this.getSounds([id]))[0] || null;
@@ -303,10 +283,7 @@ export class WikimediaProvider implements AudioProvider {
         (item) =>
           !options.license || item.license.toLowerCase().includes(options.license.toLowerCase()),
       );
-    return this.preferMp3(sounds.filter((item) => item.playable)).then((located) => [
-      ...located,
-      ...sounds.filter((item) => !item.playable),
-    ]);
+    return sounds;
   }
   validateSound(sound: SoundCandidate): Promise<boolean> {
     return head(sound, this.requester);

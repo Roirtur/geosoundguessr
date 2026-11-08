@@ -2,12 +2,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { isGameSound } from './pool';
+import type { SoundCandidate } from '../shared/types';
 
 afterEach(() => {
   delete process.env.SOUND_METADATA_FILE;
 });
 
 describe('metadata migration', () => {
+  it('ships a substantial metadata-only catalog of playable documented recordings', async () => {
+    const catalog = JSON.parse(
+      await readFile(join(process.cwd(), 'server/data/seed-sounds.json'), 'utf8'),
+    ) as SoundCandidate[];
+    expect(catalog.length).toBeGreaterThanOrEqual(50);
+    expect(catalog.every(isGameSound)).toBe(true);
+    expect(catalog.every((sound) => sound.audioUrl.startsWith('https://'))).toBe(true);
+    expect(catalog.every((sound) => sound.audioUrl.length < 2000)).toBe(true);
+  });
+
   it('preserves reviewed legacy metadata without making its old audio playable', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'echo-atlas-migration-'));
     const file = join(directory, 'sounds.json');

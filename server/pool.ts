@@ -17,9 +17,11 @@ import {
   type SoundSearchOptions,
 } from './providers';
 
-const FILE =
+const RUNTIME_FILE =
   process.env.SOUND_METADATA_FILE || join(process.cwd(), 'server', 'data', 'sounds.json');
+const SEED_FILE = join(process.cwd(), 'server', 'data', 'seed-sounds.json');
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+const AUTOMATIC_CATALOG_LIMIT = 5000;
 export const soundKey = (sound: SoundCandidate) => `${sound.provider}:${sound.providerId}`;
 export function recordingKey(sound: SoundCandidate): string {
   try {
@@ -135,27 +137,28 @@ export class SoundPool {
     return this.providers.map(({ id, name, enabled }) => ({ id, name, enabled }));
   }
   async load(): Promise<void> {
-    let contents: string;
-    try {
-      contents = await readFile(FILE, 'utf8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        this.sounds = [];
-        this.unrecognized = [];
-        return;
-      }
-      throw error;
-    }
-    const body = JSON.parse(contents) as unknown;
-    if (!Array.isArray(body))
-      throw new Error('Sound metadata file must contain an array. It was not modified.');
+    const files = process.env.SOUND_METADATA_FILE ? [RUNTIME_FILE] : [SEED_FILE, RUNTIME_FILE];
     this.sounds = [];
     this.unrecognized = [];
-    for (const item of body) {
-      const migrated = this.migrate(item);
-      if (migrated) this.sounds.push(migrated);
-      else this.unrecognized.push(item);
+    const loaded = new Map<string, SoundCandidate>();
+    for (const file of files) {
+      let contents: string;
+      try {
+        contents = await readFile(file, 'utf8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw error;
+      }
+      const body = JSON.parse(contents) as unknown;
+      if (!Array.isArray(body))
+        throw new Error('Sound metadata file must contain an array. It was not modified.');
+      for (const item of body) {
+        const migrated = this.migrate(item);
+        if (migrated) loaded.set(soundKey(migrated), migrated);
+        else if (file === RUNTIME_FILE) this.unrecognized.push(item);
+      }
     }
+    this.sounds = [...loaded.values()];
   }
   private migrate(item: unknown): SoundCandidate | null {
     if (!item || typeof item !== 'object') return null;
@@ -186,8 +189,12 @@ export class SoundPool {
     return sound;
   }
   private async save(): Promise<void> {
-    await mkdir(dirname(FILE), { recursive: true });
-    await writeFile(FILE, JSON.stringify([...this.sounds, ...this.unrecognized], null, 2), 'utf8');
+    await mkdir(dirname(RUNTIME_FILE), { recursive: true });
+    await writeFile(
+      RUNTIME_FILE,
+      JSON.stringify([...this.sounds, ...this.unrecognized], null, 2),
+      'utf8',
+    );
   }
   list(): SoundCandidate[] {
     return [...this.sounds];
@@ -243,7 +250,7 @@ export class SoundPool {
     const automatic = this.sounds.filter(
       (sound) => !sound.managedByAdmin && sound.approvalStatus !== 'approved',
     );
-    const budget = Math.max(0, 1000 - protectedSounds.length);
+    const budget = Math.max(0, AUTOMATIC_CATALOG_LIMIT - protectedSounds.length);
     const playable = automatic.filter(isGameSound);
     const others = automatic.filter((sound) => !isGameSound(sound));
     const keptPlayable = budget ? playable.slice(-budget) : [];
