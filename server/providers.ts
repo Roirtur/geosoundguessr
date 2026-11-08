@@ -16,6 +16,11 @@ export interface AudioProvider {
   name: string;
   enabled: boolean;
   searchSounds(options: SoundSearchOptions): Promise<SoundCandidate[]>;
+  /**
+   * Returns an ephemeral, varied sample when a provider can do so without
+   * building a local catalog. Results are used for one match only.
+   */
+  randomSounds?(count: number, random?: () => number): Promise<SoundCandidate[]>;
   getSound(id: string): Promise<SoundCandidate | null>;
   validateSound(sound: SoundCandidate): Promise<boolean>;
 }
@@ -379,6 +384,13 @@ export class XenoCantoProvider implements AudioProvider {
   get enabled(): boolean {
     return !!this.key;
   }
+  private async query(options: SoundSearchOptions): Promise<Dict> {
+    const url = new URL('https://xeno-canto.org/api/3/recordings');
+    url.searchParams.set('query', options.query || 'q:A');
+    url.searchParams.set('key', this.key!);
+    url.searchParams.set('page', String(options.page || 1));
+    return json(url, this.requester);
+  }
   private normalize(value: unknown): SoundCandidate | null {
     const raw = object(value),
       providerId = string(raw.id),
@@ -413,11 +425,7 @@ export class XenoCantoProvider implements AudioProvider {
   }
   async searchSounds(options: SoundSearchOptions): Promise<SoundCandidate[]> {
     if (!this.enabled) return [];
-    const url = new URL('https://xeno-canto.org/api/3/recordings');
-    url.searchParams.set('query', options.query || 'q:A');
-    url.searchParams.set('key', this.key!);
-    url.searchParams.set('page', String(options.page || 1));
-    const recordings = (await json(url, this.requester)).recordings;
+    const recordings = (await this.query(options)).recordings;
     if (!Array.isArray(recordings))
       throw new AudioProviderError('Xeno-canto response has no recordings.', 'response');
     return recordings
@@ -429,6 +437,48 @@ export class XenoCantoProvider implements AudioProvider {
           (item.duration >= (options.minDuration || 1) &&
             item.duration <= (options.maxDuration || 300)),
       );
+  }
+  /**
+   * The web site's /explore/random page is an HTML UI, not a stable data API.
+   * Randomizing a documented API query and result page gives the game fresh,
+   * coordinate-bearing recordings without retaining a Xeno-canto catalog.
+   */
+  async randomSounds(count: number, random: () => number = Math.random): Promise<SoundCandidate[]> {
+    if (!this.enabled || count < 1) return [];
+    const queries = [
+      'area:africa q:>C',
+      'area:america q:>C',
+      'area:asia q:>C',
+      'area:australia q:>C',
+      'area:europe q:>C',
+      'q:>C',
+    ];
+    const selected: SoundCandidate[] = [];
+    const seen = new Set<string>();
+    // A result page normally supplies many candidates. Keep the request count
+    // modest so a match does not wait behind a long chain of external calls.
+    const attempts = Math.max(3, Math.min(8, Math.ceil(count / 4) + 2));
+    for (let attempt = 0; attempt < attempts && selected.length < count; attempt++) {
+      const query = queries[Math.floor(random() * queries.length)];
+      const firstPage = await this.query({ query, category: 'nature', page: 1 });
+      const pageCount = Math.max(1, Number(firstPage.numPages) || 1);
+      const page = 1 + Math.floor(random() * pageCount);
+      const body = page === 1 ? firstPage : await this.query({ query, category: 'nature', page });
+      const recordings = body.recordings;
+      if (!Array.isArray(recordings)) continue;
+      const candidates = recordings
+        .map((item) => this.normalize(item))
+        .filter((item): item is SoundCandidate => !!item)
+        .filter((item) => !!item.duration && item.duration >= 12 && item.duration <= 90)
+        .sort(() => random() - 0.5);
+      for (const candidate of candidates) {
+        if (seen.has(candidate.providerId)) continue;
+        seen.add(candidate.providerId);
+        selected.push(candidate);
+        if (selected.length >= count) break;
+      }
+    }
+    return selected;
   }
   async getSound(id: string): Promise<SoundCandidate | null> {
     if (!this.enabled || !/^\d+$/.test(id)) return null;

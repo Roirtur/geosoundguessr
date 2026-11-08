@@ -30,9 +30,8 @@ const server = createServer(app);
 const io = new Server(server, { cors: { origin: true, methods: ['GET', 'POST'] } });
 const pool = new SoundPool();
 await pool.load();
-// A deployed catalog may already be large enough to start a match, but provider
-// discovery must still run so newly configured sources such as Xeno-canto are
-// incorporated without waiting for the pool to become depleted.
+// Refresh the persistent provider metadata in the background. Xeno-canto is
+// deliberately sampled live for each match and is never added to this catalog.
 void pool
   .refresh()
   .catch((error) =>

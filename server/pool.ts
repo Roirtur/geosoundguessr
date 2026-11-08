@@ -22,7 +22,6 @@ const RUNTIME_FILE =
 const SEED_FILE = join(process.cwd(), 'server', 'data', 'seed-sounds.json');
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 const AUTOMATIC_CATALOG_LIMIT = 5000;
-const XENO_BOOTSTRAP_PAGES = Math.max(1, Number(process.env.XENO_BOOTSTRAP_PAGES || 8));
 export const soundKey = (sound: SoundCandidate) => `${sound.provider}:${sound.providerId}`;
 export function recordingKey(sound: SoundCandidate): string {
   try {
@@ -356,10 +355,9 @@ export class SoundPool {
           { query: 'festival', category: 'culture' },
         ];
         for (const provider of this.providers.filter((item) => item.enabled)) {
-          if (provider.id === 'xeno-canto') {
-            jobs.push(this.discoverXeno(provider));
-            continue;
-          }
+          // Xeno-canto is intentionally selected live for each match. Do not
+          // write its discovery results into the persistent metadata pool.
+          if (provider.id === 'xeno-canto') continue;
           for (const theme of themes.slice(0, 3))
             jobs.push(provider.searchSounds({ ...theme, minDuration: 12, maxDuration: 90 }));
         }
@@ -381,45 +379,42 @@ export class SoundPool {
     })();
     return this.refreshTask;
   }
-  private async discoverXeno(provider: AudioProvider): Promise<SoundCandidate[]> {
-    const found: SoundCandidate[] = [];
-    for (let page = 1; page <= XENO_BOOTSTRAP_PAGES; page++) {
-      try {
-        const results = await provider.searchSounds({
-          query: 'q:>C',
-          category: 'nature',
-          page,
-          minDuration: 12,
-          maxDuration: 90,
-        });
-        if (!results.length) break;
-        found.push(...results);
-      } catch (error) {
-        if (!found.length) throw error;
-        break;
-      }
-      if (page < XENO_BOOTSTRAP_PAGES)
-        await new Promise<void>((resolve) => setTimeout(resolve, 350));
-    }
-    return found;
-  }
   private eligible(mode: 'casual' | 'curated'): SoundEntry[] {
     return this.sounds.filter(
       (sound): sound is SoundEntry =>
         isGameSound(sound) &&
+        sound.provider !== 'xeno-canto' &&
         (sound.approvalStatus === 'approved' ||
           (mode === 'casual' && sound.approvalStatus === 'provisional')),
     );
   }
   async pick(count: number, mode: 'casual' | 'curated'): Promise<SoundEntry[]> {
     let available = this.eligible(mode);
+    // Xeno-canto provides a huge, live source for casual matches. Candidates
+    // remain only in the room's private round sequence, never in sounds.json.
+    if (mode === 'casual') {
+      const xeno = this.providers.find(
+        (provider): provider is AudioProvider & Required<Pick<AudioProvider, 'randomSounds'>> =>
+          provider.enabled && provider.id === 'xeno-canto' && !!provider.randomSounds,
+      );
+      if (xeno?.randomSounds) {
+        try {
+          const live = (await xeno.randomSounds(Math.max(12, count * 3))).filter(isGameSound);
+          if (live.length >= count) available = live;
+          else available = [...live, ...available];
+        } catch {
+          // Commons remains a playable fallback when the remote API is busy.
+        }
+      }
+    }
     if (available.length < count * 2) {
       try {
         await this.refresh();
       } catch (error) {
         if (available.length < count) throw error;
       }
-      available = this.eligible(mode);
+      const staticSounds = this.eligible(mode);
+      available = available.filter((sound) => sound.provider === 'xeno-canto').concat(staticSounds);
     }
     if (available.length < count)
       throw new Error(

@@ -123,6 +123,34 @@ describe('remote audio providers', () => {
     );
     expect(found[0].audioUrl).not.toContain('private-key');
   });
+  it('samples a randomized Xeno-canto API result page without building a catalog', async () => {
+    const requester = vi.fn(async () =>
+      response({
+        numPages: 4,
+        recordings: [
+          {
+            id: '456',
+            file: 'https://xeno-canto.org/sounds/456.mp3',
+            url: 'https://xeno-canto.org/456',
+            en: 'African bird',
+            rec: 'Observer',
+            lic: 'https://creativecommons.org/licenses/by/4.0/',
+            lat: '-1.2864',
+            lon: '36.8172',
+            length: '0:24',
+            loc: 'Nairobi',
+            cnt: 'Kenya',
+          },
+        ],
+      }),
+    ) as unknown as typeof fetch;
+    const found = await new XenoCantoProvider('private-key', requester).randomSounds(1, () => 0);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ providerId: '456', countryName: 'Kenya', playable: true });
+    const request = new URL(String(vi.mocked(requester).mock.calls[0][0]));
+    expect(request.searchParams.get('query')).toBe('area:africa q:>C');
+    expect(request.searchParams.get('page')).toBe('1');
+  });
   it('selects unique provider-qualified IDs and diverse countries', async () => {
     const sound = (await new WikimediaProvider(async () =>
       response({ query: { pages: { '1': commonsPage } } }),
