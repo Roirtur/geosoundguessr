@@ -7,25 +7,40 @@ export interface Coordinates {
   latitude: number;
   longitude: number;
 }
-export interface SoundEntry extends Coordinates {
+export interface SoundCandidate {
   id: string;
-  freesoundId: number;
-  previewUrl: string;
+  provider: 'wikimedia' | 'openverse' | 'xeno-canto' | 'legacy-freesound';
+  providerId: string;
+  audioUrl: string;
   sourceUrl: string;
   title: string;
   description: string;
-  username: string;
+  creator: string;
   tags: string[];
   category: SoundCategory;
-  duration: number;
-  countryCode: string;
-  countryName: string;
+  duration?: number;
+  latitude?: number;
+  longitude?: number;
+  countryCode?: string;
+  countryName?: string;
   originType: OriginType;
+  locationEvidence?: string;
   license: string;
   approvalStatus: ApprovalStatus;
   attribution: string;
   lastCheckedAt: string;
+  playable: boolean;
+  managedByAdmin?: boolean;
 }
+export type SoundEntry = Omit<
+  SoundCandidate,
+  keyof Coordinates | 'countryCode' | 'countryName' | 'playable'
+> &
+  Coordinates & {
+    countryCode: string;
+    countryName: string;
+    playable: true;
+  };
 export interface PlayerView {
   id: string;
   name: string;
@@ -47,12 +62,14 @@ export interface RevealView {
     SoundEntry,
     | 'title'
     | 'category'
-    | 'username'
+    | 'creator'
+    | 'provider'
     | 'sourceUrl'
     | 'license'
     | 'attribution'
     | 'approvalStatus'
     | 'originType'
+    | 'locationEvidence'
   >;
   guesses: GuessView[];
   skipped?: boolean;

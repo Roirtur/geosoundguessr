@@ -1112,6 +1112,20 @@ a {
   height: 33px;
   margin: 10px 0;
 }
+.location-review {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin: 10px 0;
+}
+.location-review input:nth-child(3) {
+  grid-column: 1 / -1;
+}
+.location-review input,
+.location-review select {
+  min-width: 0;
+  width: 100%;
+}
 .sound-actions {
   display: flex;
   align-items: center;

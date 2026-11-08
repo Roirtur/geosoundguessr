@@ -74,7 +74,7 @@ export default function AudioPanel({ src, phase, onReady, onFailure }: Props) {
   };
   const failure = () => {
     setLoading(false);
-    setError('This preview could not be played. Replacing it for everyone…');
+    setError('This recording could not be played. Replacing it for everyone…');
     if (src && failed.current !== src) {
       failed.current = src;
       onFailure(src);
@@ -128,7 +128,7 @@ export default function AudioPanel({ src, phase, onReady, onFailure }: Props) {
           <strong>Mystery Sound</strong>
           <small>
             {loading
-              ? 'Loading remote preview…'
+              ? 'Loading remote recording…'
               : phase === 'preparing'
                 ? 'Ready for the round'
                 : blocked

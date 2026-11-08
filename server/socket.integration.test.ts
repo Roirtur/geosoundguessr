@@ -26,12 +26,13 @@ function fixture(id: number): SoundEntry {
   const country = countryAt(location)!;
   return {
     id: `fixture-${id}`,
-    freesoundId: id,
-    previewUrl: `https://cdn.freesound.org/previews/fixture-${id}.mp3`,
-    sourceUrl: `https://freesound.org/s/${id}/`,
+    provider: 'wikimedia',
+    providerId: String(id),
+    audioUrl: `https://upload.wikimedia.org/wikipedia/commons/fixture-${id}.ogg`,
+    sourceUrl: `https://commons.wikimedia.org/wiki/File:fixture-${id}.ogg`,
     title: `Mock fixture ${id}`,
     description: 'Mocked transport test only',
-    username: 'fixture',
+    creator: 'fixture',
     tags: [],
     category: id % 2 ? 'nature' : 'city',
     duration: 30,
@@ -41,6 +42,8 @@ function fixture(id: number): SoundEntry {
     originType: 'recording_location',
     license: 'Attribution',
     approvalStatus: 'provisional',
+    locationEvidence: 'Mock Commons coordinates for a transport fixture.',
+    playable: true,
     attribution: 'Mock fixture',
     lastCheckedAt: '2026-01-01',
   };
@@ -77,7 +80,6 @@ describe('real Socket.IO transport with mocked metadata', () => {
         env: {
           ...process.env,
           PORT: String(port),
-          FREESOUND_API_KEY: 'mock-test-key',
           SOUND_METADATA_FILE: file,
         },
         stdio: 'ignore',
@@ -175,6 +177,8 @@ describe('real Socket.IO transport with mocked metadata', () => {
         (room) => room.phase === 'preparing' && room.currentRound === round && !!room.playbackUrl,
       );
       expect(preparedA.playbackUrl).toBe(preparedB.playbackUrl);
+      expect(preparedA.playbackUrl).toMatch(/^\/api\/audio\//);
+      expect(JSON.stringify(preparedA)).not.toContain('fixture-');
       expect(preparedA.reveal).toBeUndefined();
       await aliceSocket.emitWithAck(EVENTS.ready, { code, playerId: alice });
       await bobSocket.emitWithAck(EVENTS.ready, { code, playerId: bob });

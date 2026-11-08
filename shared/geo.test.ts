@@ -1,12 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { countryAt, haversineKm, parseGeotag, scoreForDistance, validCoordinates } from './geo';
+import {
+  countryAt,
+  haversineKm,
+  parseCoordinateString,
+  scoreForDistance,
+  validCoordinates,
+} from './geo';
 
 describe('geography and scoring', () => {
-  it('validates coordinates and Freesound latitude longitude strings', () => {
-    expect(parseGeotag('48.8566 2.3522')).toEqual({ latitude: 48.8566, longitude: 2.3522 });
-    expect(parseGeotag('48.8566, 2.3522')).toEqual({ latitude: 48.8566, longitude: 2.3522 });
-    expect(parseGeotag('91 2')).toBeNull();
-    expect(parseGeotag('hello world')).toBeNull();
+  it('validates coordinates and latitude longitude strings', () => {
+    expect(parseCoordinateString('48.8566 2.3522')).toEqual({
+      latitude: 48.8566,
+      longitude: 2.3522,
+    });
+    expect(parseCoordinateString('48.8566, 2.3522')).toEqual({
+      latitude: 48.8566,
+      longitude: 2.3522,
+    });
+    expect(parseCoordinateString('91 2')).toBeNull();
+    expect(parseCoordinateString('hello world')).toBeNull();
     expect(validCoordinates({ latitude: 90, longitude: -180 })).toBe(true);
     expect(validCoordinates({ latitude: Infinity, longitude: 0 })).toBe(false);
   });

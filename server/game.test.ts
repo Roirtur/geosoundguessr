@@ -9,12 +9,13 @@ function sound(id: number, location = paris): SoundEntry {
   const country = countryAt(location)!;
   return {
     id: `sound-${id}`,
-    freesoundId: id,
-    previewUrl: `https://cdn.freesound.org/${id}.mp3`,
-    sourceUrl: `https://freesound.org/s/${id}/`,
+    provider: 'wikimedia',
+    providerId: String(id),
+    audioUrl: `https://upload.wikimedia.org/${id}.ogg`,
+    sourceUrl: `https://commons.wikimedia.org/wiki/File:${id}.ogg`,
     title: `Real sound ${id}`,
     description: '',
-    username: 'recorder',
+    creator: 'recorder',
     tags: [],
     category: 'nature',
     duration: 30,
@@ -24,6 +25,8 @@ function sound(id: number, location = paris): SoundEntry {
     originType: 'recording_location',
     license: 'Attribution',
     approvalStatus: 'provisional',
+    locationEvidence: 'Mock Commons coordinates for a test fixture.',
+    playable: true,
     attribution: 'Test recording',
     lastCheckedAt: '2026-01-01',
   };
@@ -32,7 +35,9 @@ function setup(sounds = [sound(1), sound(2, tokyo)]) {
   const updates: RoomView[] = [];
   const source: GameSoundSource = {
     pick: vi.fn(async (count) => sounds.slice(0, count)),
-    replacement: vi.fn((excluded) => sounds.find((item) => !excluded.has(item.freesoundId))),
+    replacement: vi.fn((excluded) =>
+      sounds.find((item) => !excluded.has(`${item.provider}:${item.providerId}`)),
+    ),
   };
   const game = new GameEngine(source, (_code, view) => updates.push(view));
   const alice = game.create('Alice', 'socket-a').data!;
@@ -69,11 +74,15 @@ describe('multiplayer room state', () => {
     const { game, alice, bob, code, view, start } = setup();
     await start();
     expect(view().reveal).toBeUndefined();
+    const token = view().playbackUrl!.split('/').at(-1)!;
+    expect(game.audioFor(code, token)?.title).toBe('Real sound 1');
+    expect(game.audioFor(code, 'wrong-token')).toBeUndefined();
     expect(game.confirm(code, alice.playerId, 'socket-a', paris).ok).toBe(true);
     expect(game.confirm(code, alice.playerId, 'socket-a', tokyo).ok).toBe(false);
     expect(view().phase).toBe('guessing');
     expect(game.confirm(code, bob.playerId, 'socket-b', tokyo).ok).toBe(true);
     expect(view().phase).toBe('results');
+    expect(game.audioFor(code, token)).toBeUndefined();
     expect(view().reveal?.answer.countryName).toBe('France');
     expect(view().reveal?.guesses).toHaveLength(2);
     expect(view().players.find((p) => p.id === alice.playerId)?.totalScore).toBe(100);
@@ -124,6 +133,8 @@ describe('multiplayer room state', () => {
     const { game, alice, code, view, start } = setup([sound(1), sound(2)]);
     await start();
     const old = view().playbackUrl!;
+    expect(old).toMatch(/^\/api\/audio\//);
+    expect(old).not.toContain('wikimedia');
     expect(game.audioFailed(code, alice.playerId, 'socket-a', old).ok).toBe(true);
     expect(view().phase).toBe('preparing');
     expect(view().playbackUrl).not.toBe(old);
@@ -135,7 +146,7 @@ describe('multiplayer room state', () => {
     expect((await game.start(code, alice.playerId, 'socket-a')).ok).toBe(true);
     vi.advanceTimersByTime(15000);
     expect(view().phase).toBe('preparing');
-    expect(view().playbackUrl).toContain('2.mp3');
+    expect(view().playbackUrl).toMatch(/^\/api\/audio\//);
     vi.advanceTimersByTime(15000);
     expect(view().phase).toBe('lobby');
     expect(view().error).toMatch(/Audio playback failed/);

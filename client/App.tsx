@@ -14,7 +14,6 @@ import {
   Headphones,
   LoaderCircle,
   MapPin,
-  Radio,
   Settings2,
   Trophy,
   Users,
@@ -33,7 +32,11 @@ const socket = io(serverBase || undefined, {
 });
 const SESSION_KEY = 'echo-atlas-session';
 type Session = { code: string; playerId: string; token: string };
-type Status = { configured: boolean; pool: { total: number }; adminEnabled: boolean };
+type Status = {
+  providers: { id: string; name: string; enabled: boolean }[];
+  pool: { total: number; playable: number };
+  adminEnabled: boolean;
+};
 
 export default function App() {
   const [view, setView] = useState<'game' | 'admin'>('game');
@@ -200,7 +203,11 @@ export default function App() {
   const sendFailed = useCallback(
     (src: string) => {
       if (session)
-        void call(EVENTS.audioFailed, { code: session.code, playerId: session.playerId, src });
+        void call(EVENTS.audioFailed, {
+          code: session.code,
+          playerId: session.playerId,
+          src: serverBase && src.startsWith(serverBase) ? src.slice(serverBase.length) : src,
+        });
     },
     [session, call],
   );
@@ -301,12 +308,6 @@ export default function App() {
             {error && (
               <p className="message error" role="alert">
                 {error}
-              </p>
-            )}
-            {status && !status.configured && (
-              <p className="setup-notice">
-                <Radio size={17} /> Freesound API not configured. Add your key to <code>.env</code>{' '}
-                to play real recordings.
               </p>
             )}
             <div className="menu-steps">
@@ -417,15 +418,9 @@ export default function App() {
                 {room.error}
               </p>
             )}
-            {!status?.configured && (
-              <p className="message warning">
-                Freesound API not configured. Add <code>FREESOUND_API_KEY</code> to .env, then
-                restart the server.
-              </p>
-            )}
             <button
               className="button primary start-button"
-              disabled={!isHost || busy || !status?.configured}
+              disabled={!isHost || busy}
               onClick={() => action(EVENTS.start, {}, 120000)}
             >
               {busy ? <LoaderCircle className="spin" size={18} /> : <AudioLines size={18} />}{' '}
@@ -433,7 +428,7 @@ export default function App() {
               <ArrowRight size={17} />
             </button>
             <p className="microcopy">
-              Real Freesound previews · 30 seconds per round · exact distance scoring
+              Real remote recordings · 30 seconds per round · exact distance scoring
             </p>
           </div>
           {error && (
@@ -482,7 +477,7 @@ export default function App() {
                 : 'Rotate Earth, find the country, and click your exact guess.'}
             </p>
             <AudioPanel
-              src={room.playbackUrl}
+              src={room.playbackUrl ? `${serverBase}${room.playbackUrl}` : undefined}
               phase={room.phase}
               onReady={sendReady}
               onFailure={sendFailed}
@@ -560,16 +555,19 @@ export default function App() {
               </span>
               <h3>{room.reveal.sound.title}</h3>
               <p>
-                by {room.reveal.sound.username} · {room.reveal.sound.category} ·{' '}
+                by {room.reveal.sound.creator} · {room.reveal.sound.category} ·{' '}
                 {room.reveal.sound.license}
               </p>
               <p className="confidence">
                 {room.reveal.sound.approvalStatus === 'approved'
                   ? 'Reviewed location'
-                  : 'Uploader geotag · provisional location'}
+                  : 'Source location · provisional'}
               </p>
+              {room.reveal.sound.locationEvidence && (
+                <p className="confidence">{room.reveal.sound.locationEvidence}</p>
+              )}
               <a href={room.reveal.sound.sourceUrl} target="_blank" rel="noreferrer">
-                View on Freesound <ExternalLink size={14} />
+                View on {room.reveal.sound.provider} <ExternalLink size={14} />
               </a>
             </div>
             <div className="result-table">
@@ -671,7 +669,7 @@ export default function App() {
       <footer className="footer">
         <span>HEAR THE WORLD DIFFERENTLY</span>
         <span>
-          FREESOUND REMOTE PREVIEWS <i>·</i> LOCAL MULTIPLAYER
+          REMOTE AUDIO <i>·</i> LOCAL MULTIPLAYER
         </span>
       </footer>
     </div>

@@ -12,12 +12,13 @@ const location = [
 ];
 const fixtures = location.map((place, index) => ({
   id: `browser-fixture-${index + 1}`,
-  freesoundId: index + 1,
-  previewUrl: `https://cdn.freesound.org/previews/browser-fixture-${index + 1}.mp3`,
-  sourceUrl: `https://freesound.org/s/${index + 1}/`,
+  provider: 'wikimedia',
+  providerId: String(index + 1),
+  audioUrl: `https://upload.wikimedia.org/wikipedia/commons/browser-fixture-${index + 1}.ogg`,
+  sourceUrl: `https://commons.wikimedia.org/wiki/File:browser-fixture-${index + 1}.ogg`,
   title: `Browser fixture ${index + 1}`,
   description: 'Mocked browser test only',
-  username: 'fixture',
+  creator: 'fixture',
   tags: [],
   category: 'nature',
   duration: 30,
@@ -25,6 +26,8 @@ const fixtures = location.map((place, index) => ({
   originType: 'recording_location',
   license: 'Attribution',
   approvalStatus: 'provisional',
+  locationEvidence: 'Mock Commons coordinates for a browser fixture.',
+  playable: true,
   attribution: 'Mocked browser test only',
   lastCheckedAt: '2026-01-01',
 }));
@@ -63,7 +66,6 @@ const server = spawn(process.execPath, ['server/start.mjs'], {
   env: {
     ...process.env,
     PORT: String(port),
-    FREESOUND_API_KEY: 'mock-test-key',
     SOUND_METADATA_FILE: metadataFile,
   },
   stdio: 'ignore',
@@ -98,7 +100,7 @@ try {
   });
   const makePage = async () => {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    await context.route('https://cdn.freesound.org/previews/browser-fixture-*.mp3', (route) =>
+    await context.route('**/api/audio/*/*', (route) =>
       route.fulfill({ status: 200, contentType: 'audio/wav', body: wav }),
     );
     const page = await context.newPage();

@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { Server } from 'socket.io';
 import { EVENTS } from '../shared/events';
 import type { ApprovalStatus, SoundCategory } from '../shared/types';
-import { FreesoundClient } from './freesound';
-import { SoundPool } from './pool';
+import { SoundPool, isGameSound } from './pool';
 import { GameEngine } from './game';
+import { relayAudio } from './audio-relay';
 
 const app = express();
 app.disable('x-powered-by');
@@ -28,19 +28,26 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '24kb' }));
 const server = createServer(app);
 const io = new Server(server, { cors: { origin: true, methods: ['GET', 'POST'] } });
-const client = new FreesoundClient(process.env.FREESOUND_API_KEY);
-const pool = new SoundPool(client);
+const pool = new SoundPool();
 await pool.load();
 const game = new GameEngine(pool, (code, view) => io.to(code).emit(EVENTS.roomState, view));
 const port = Number(process.env.PORT || 3001);
 
 app.get('/api/status', (_req, res) =>
   res.json({
-    configured: client.configured,
+    providers: pool.providerStatus(),
     pool: pool.stats(),
     adminEnabled: process.env.NODE_ENV !== 'production',
   }),
 );
+app.get('/api/audio/:code/:token', async (req, res) => {
+  const sound = game.audioFor(req.params.code, req.params.token);
+  if (!sound) {
+    res.sendStatus(404);
+    return;
+  }
+  await relayAudio(req, res, sound);
+});
 
 function adminAllowed(req: express.Request): boolean {
   if (process.env.NODE_ENV === 'production') return false;
@@ -95,27 +102,29 @@ app.post('/api/admin/search', admin, async (req, res) => {
     ? Math.min(300, Number(req.body.maxDuration))
     : 75;
   const license =
-    req.body?.license === 'Attribution' || req.body?.license === 'Creative Commons 0'
-      ? ` license:"${req.body.license}"`
-      : '';
+    typeof req.body?.license === 'string' && req.body.license !== 'any'
+      ? req.body.license.slice(0, 30)
+      : undefined;
+  const provider =
+    typeof req.body?.provider === 'string' && req.body.provider !== 'all'
+      ? req.body.provider
+      : undefined;
   if (!query || min > max) {
     res.status(400).json({ error: 'Enter a search query and valid duration range.' });
     return;
   }
   try {
-    const sounds = await pool.search(
-      query,
-      category,
-      page,
-      `is_geotagged:1 duration:[${min} TO ${max}]${license}`,
+    const { sounds, errors } = await pool.search(
+      { query, category, page, minDuration: min, maxDuration: max, license },
+      provider,
     );
     for (const sound of sounds) pending.set(sound.id, { sound, expires: Date.now() + 30 * 60_000 });
     for (const [key, value] of pending) if (value.expires < Date.now()) pending.delete(key);
-    res.json({ sounds });
+    res.json({ sounds, errors });
   } catch (error) {
     res
       .status(502)
-      .json({ error: error instanceof Error ? error.message : 'Freesound search failed.' });
+      .json({ error: error instanceof Error ? error.message : 'Audio search failed.' });
   }
 });
 app.post('/api/admin/add', admin, async (req, res) => {
@@ -130,7 +139,20 @@ app.post('/api/admin/add', admin, async (req, res) => {
     return;
   }
   try {
-    const added = await pool.add([{ ...item.sound, approvalStatus: status }]);
+    if (status === 'approved' && !isGameSound(item.sound)) {
+      res
+        .status(400)
+        .json({ error: 'This recording needs verified location evidence before approval.' });
+      return;
+    }
+    if (status !== 'rejected') {
+      const provider = pool.providers.find((entry) => entry.id === item.sound.provider);
+      if (!provider || !(await provider.validateSound(item.sound))) {
+        res.status(400).json({ error: 'Remote audio is currently unavailable or unsupported.' });
+        return;
+      }
+    }
+    const added = await pool.add([{ ...item.sound, approvalStatus: status }], true);
     pending.delete(req.body.id);
     res.json({ added });
   } catch {
@@ -146,10 +168,49 @@ app.post('/api/admin/review', admin, async (req, res) => {
     return;
   }
   try {
+    const sound = pool.list().find((entry) => entry.id === req.body.id);
+    if (!sound) {
+      res.status(404).json({ error: 'Sound not found.' });
+      return;
+    }
+    if (req.body.status !== 'rejected') {
+      const provider = pool.providers.find((entry) => entry.id === sound.provider);
+      if (!provider || !(await provider.validateSound(sound))) {
+        res.status(400).json({ error: 'Remote audio is currently unavailable or unsupported.' });
+        return;
+      }
+    }
     const found = await pool.review(req.body.id, req.body.status);
     res.status(found ? 200 : 404).json(found ? { ok: true } : { error: 'Sound not found.' });
-  } catch {
-    res.status(500).json({ error: 'Could not save review.' });
+  } catch (error) {
+    res
+      .status(400)
+      .json({ error: error instanceof Error ? error.message : 'Could not save review.' });
+  }
+});
+app.post('/api/admin/locate', admin, async (req, res) => {
+  if (
+    typeof req.body?.id !== 'string' ||
+    typeof req.body?.evidence !== 'string' ||
+    !Number.isFinite(req.body?.latitude) ||
+    !Number.isFinite(req.body?.longitude)
+  ) {
+    res.status(400).json({ error: 'Provide the sound, coordinates and location evidence.' });
+    return;
+  }
+  try {
+    const found = await pool.locate(
+      req.body.id,
+      req.body.latitude,
+      req.body.longitude,
+      req.body.evidence,
+      req.body.originType || 'recording_location',
+    );
+    res.status(found ? 200 : 404).json(found ? { ok: true } : { error: 'Sound not found.' });
+  } catch (error) {
+    res
+      .status(400)
+      .json({ error: error instanceof Error ? error.message : 'Location could not be saved.' });
   }
 });
 app.post('/api/admin/discover', admin, async (_req, res) => {
@@ -211,6 +272,10 @@ io.on('connection', (socket) => {
 
 server.listen(port, '0.0.0.0', () =>
   console.log(
-    `Echo Atlas server listening on port ${port}; Freesound ${client.configured ? 'configured' : 'not configured'}.`,
+    `Echo Atlas server listening on port ${port}; providers: ${pool
+      .providerStatus()
+      .filter((p) => p.enabled)
+      .map((p) => p.name)
+      .join(', ')}.`,
   ),
 );

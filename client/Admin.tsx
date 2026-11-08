@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Check, Search, ShieldCheck, X, RotateCcw } from 'lucide-react';
-import type { ApprovalStatus, SoundCategory, SoundEntry } from '../shared/types';
+import type { ApprovalStatus, OriginType, SoundCategory, SoundCandidate } from '../shared/types';
 import { serverBase } from './config';
 
 interface AdminProps {
@@ -11,6 +11,8 @@ type Stats = {
   byCategory: Record<string, number>;
   byCountry: Record<string, number>;
   byStatus: Record<string, number>;
+  byProvider: Record<string, number>;
+  playable: number;
 };
 const categories: SoundCategory[] = [
   'nature',
@@ -27,10 +29,15 @@ export default function Admin({ onBack }: AdminProps) {
   const [query, setQuery] = useState('forest ambience');
   const [category, setCategory] = useState<SoundCategory>('nature');
   const [license, setLicense] = useState('any');
+  const [provider, setProvider] = useState('all');
   const [minDuration, setMinDuration] = useState(12);
   const [maxDuration, setMaxDuration] = useState(75);
-  const [sounds, setSounds] = useState<SoundEntry[]>([]);
-  const [pool, setPool] = useState<SoundEntry[]>([]);
+  const [sounds, setSounds] = useState<SoundCandidate[]>([]);
+  const [pool, setPool] = useState<SoundCandidate[]>([]);
+  const [locations, setLocations] = useState<
+    Record<string, { latitude: string; longitude: string; evidence: string }>
+  >({});
+  const [originTypes, setOriginTypes] = useState<Record<string, OriginType>>({});
   const [stats, setStats] = useState<Stats>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -65,23 +72,51 @@ export default function Admin({ onBack }: AdminProps) {
     setError('');
     setNotice('');
     try {
-      const data = await request('search', { query, category, license, minDuration, maxDuration });
+      const data = await request('search', {
+        query,
+        category,
+        license,
+        provider,
+        minDuration,
+        maxDuration,
+      });
       setSounds(data.sounds);
-      if (!data.sounds.length)
-        setNotice('No eligible geotagged sounds matched. Try another search.');
+      if (!data.sounds.length) setNotice('No audio matched. Try another search.');
+      else if (data.errors?.length) setNotice(data.errors.join(' '));
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   };
-  const review = async (sound: SoundEntry, status: ApprovalStatus, existing: boolean) => {
+  const review = async (sound: SoundCandidate, status: ApprovalStatus, existing: boolean) => {
     setBusy(true);
     setError('');
     try {
       await request(existing ? 'review' : 'add', { id: sound.id, status });
       setNotice(`${sound.title} marked ${status}.`);
       if (!existing) setSounds((list) => list.filter((entry) => entry.id !== sound.id));
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const locate = async (sound: SoundCandidate) => {
+    const location = locations[sound.id];
+    if (!location) return;
+    setBusy(true);
+    setError('');
+    try {
+      await request('locate', {
+        id: sound.id,
+        latitude: Number(location.latitude),
+        longitude: Number(location.longitude),
+        evidence: location.evidence,
+        originType: originTypes[sound.id] || 'recording_location',
+      });
+      setNotice('Location evidence saved. Review the source before approval.');
       await load();
     } catch (e) {
       setError((e as Error).message);
@@ -123,8 +158,8 @@ export default function Admin({ onBack }: AdminProps) {
             <span className="eyebrow">SOUND OPERATIONS</span>
             <h1>Discovery studio</h1>
             <p>
-              Find real geotagged recordings, listen remotely, and review their metadata. No audio
-              files are saved.
+              Search real recordings across Wikimedia Commons, Openverse, and optional Xeno-canto.
+              Only sounds with documented coordinates can enter a game. No audio files are saved.
             </p>
           </div>
           <button className="button secondary" onClick={discover} disabled={busy}>
@@ -134,7 +169,7 @@ export default function Admin({ onBack }: AdminProps) {
         <div className="admin-stats">
           <div>
             <strong>{stats?.total ?? '—'}</strong>
-            <span>in pool</span>
+            <span>in catalog</span>
           </div>
           <div>
             <strong>{stats?.byStatus.approved ?? 0}</strong>
@@ -145,8 +180,8 @@ export default function Admin({ onBack }: AdminProps) {
             <span>provisional</span>
           </div>
           <div>
-            <strong>{Object.keys(stats?.byCountry ?? {}).length}</strong>
-            <span>countries</span>
+            <strong>{stats?.playable ?? 0}</strong>
+            <span>game ready</span>
           </div>
         </div>
         <div className="admin-toolbar">
@@ -194,11 +229,20 @@ export default function Admin({ onBack }: AdminProps) {
               </select>
             </label>
             <label>
+              Provider
+              <select value={provider} onChange={(event) => setProvider(event.target.value)}>
+                <option value="all">All available</option>
+                <option value="wikimedia">Wikimedia Commons</option>
+                <option value="openverse">Openverse</option>
+                <option value="xeno-canto">Xeno-canto</option>
+              </select>
+            </label>
+            <label>
               License
               <select value={license} onChange={(event) => setLicense(event.target.value)}>
                 <option value="any">Any supported</option>
-                <option>Attribution</option>
-                <option>Creative Commons 0</option>
+                <option value="CC BY">CC BY</option>
+                <option value="CC0">CC0</option>
               </select>
             </label>
             <label>
@@ -222,7 +266,7 @@ export default function Admin({ onBack }: AdminProps) {
               />
             </label>
             <button className="button primary" disabled={busy}>
-              <Search size={17} /> Search Freesound
+              <Search size={17} /> Search audio
             </button>
           </form>
         )}
@@ -235,41 +279,127 @@ export default function Admin({ onBack }: AdminProps) {
         <div className="sound-grid">
           {(tab === 'search' ? sounds : pool).map((sound) => (
             <article key={sound.id} className="sound-card glass">
-              <div className="sound-map">
-                <div className="map-grid" />
-                <span
-                  className="map-dot"
-                  style={{
-                    left: `${((sound.longitude + 180) / 360) * 100}%`,
-                    top: `${((90 - sound.latitude) / 180) * 100}%`,
-                  }}
-                />
-              </div>
+              {typeof sound.latitude === 'number' && typeof sound.longitude === 'number' && (
+                <div className="sound-map">
+                  <div className="map-grid" />
+                  <span
+                    className="map-dot"
+                    style={{
+                      left: `${((sound.longitude + 180) / 360) * 100}%`,
+                      top: `${((90 - sound.latitude) / 180) * 100}%`,
+                    }}
+                  />
+                </div>
+              )}
               <div className="sound-card-body">
                 <div className="sound-card-top">
                   <span className="pill">{sound.category}</span>
                   <span className="muted">
-                    {Math.round(sound.duration)}s · {sound.approvalStatus}
+                    {sound.provider} · {sound.duration ? `${Math.round(sound.duration)}s · ` : ''}
+                    {sound.approvalStatus}
                   </span>
                 </div>
                 <h3>{sound.title}</h3>
                 <p>
-                  {sound.countryName} · {sound.latitude.toFixed(2)}, {sound.longitude.toFixed(2)}
+                  {sound.countryName &&
+                  typeof sound.latitude === 'number' &&
+                  typeof sound.longitude === 'number'
+                    ? `${sound.countryName} · ${sound.latitude.toFixed(2)}, ${sound.longitude.toFixed(2)}`
+                    : 'Recording location not documented'}
                 </p>
                 <p className="muted">
-                  by {sound.username} · {sound.license}
+                  by {sound.creator} · {sound.license}
                 </p>
                 <p className="sound-description">
                   {sound.description.replace(/<[^>]*>/g, '').slice(0, 180)}
                 </p>
-                <audio controls preload="none" src={sound.previewUrl} />
+                {sound.locationEvidence && (
+                  <p className="muted">Location evidence: {sound.locationEvidence}</p>
+                )}
+                {sound.provider !== 'legacy-freesound' && (
+                  <audio controls preload="none" src={sound.audioUrl} />
+                )}
+                {tab === 'pool' && sound.provider !== 'legacy-freesound' && !sound.playable && (
+                  <div className="location-review">
+                    <input
+                      aria-label="Latitude"
+                      type="number"
+                      step="any"
+                      placeholder="Latitude"
+                      value={locations[sound.id]?.latitude ?? ''}
+                      onChange={(event) =>
+                        setLocations((current) => ({
+                          ...current,
+                          [sound.id]: {
+                            latitude: event.target.value,
+                            longitude: current[sound.id]?.longitude ?? '',
+                            evidence: current[sound.id]?.evidence ?? '',
+                          },
+                        }))
+                      }
+                    />
+                    <input
+                      aria-label="Longitude"
+                      type="number"
+                      step="any"
+                      placeholder="Longitude"
+                      value={locations[sound.id]?.longitude ?? ''}
+                      onChange={(event) =>
+                        setLocations((current) => ({
+                          ...current,
+                          [sound.id]: {
+                            latitude: current[sound.id]?.latitude ?? '',
+                            longitude: event.target.value,
+                            evidence: current[sound.id]?.evidence ?? '',
+                          },
+                        }))
+                      }
+                    />
+                    <input
+                      aria-label="Location evidence"
+                      placeholder="Source documenting recording location"
+                      value={locations[sound.id]?.evidence ?? ''}
+                      onChange={(event) =>
+                        setLocations((current) => ({
+                          ...current,
+                          [sound.id]: {
+                            latitude: current[sound.id]?.latitude ?? '',
+                            longitude: current[sound.id]?.longitude ?? '',
+                            evidence: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <select
+                      aria-label="Geographic origin type"
+                      value={originTypes[sound.id] || 'recording_location'}
+                      onChange={(event) =>
+                        setOriginTypes((current) => ({
+                          ...current,
+                          [sound.id]: event.target.value as OriginType,
+                        }))
+                      }
+                    >
+                      <option value="recording_location">Recording location</option>
+                      <option value="cultural_origin">Cultural origin</option>
+                      <option value="broadcast_origin">Broadcast origin</option>
+                    </select>
+                    <button
+                      className="mini-button"
+                      disabled={busy || !locations[sound.id]?.evidence}
+                      onClick={() => locate(sound)}
+                    >
+                      Save location
+                    </button>
+                  </div>
+                )}
                 <div className="sound-actions">
                   <a href={sound.sourceUrl} target="_blank" rel="noreferrer">
-                    Freesound source ↗
+                    {sound.provider} source ↗
                   </a>
                   <button
                     className="mini-button approve"
-                    disabled={busy}
+                    disabled={busy || !sound.playable}
                     onClick={() => review(sound, 'approved', tab === 'pool')}
                   >
                     <Check size={15} /> Approve
@@ -295,7 +425,7 @@ export default function Admin({ onBack }: AdminProps) {
         </div>
         {tab === 'pool' && pool.length === 0 && (
           <p className="empty">
-            The metadata pool is empty. Configure Freesound and run discovery.
+            The metadata catalog is empty. Run discovery to find real remote recordings.
           </p>
         )}
       </main>

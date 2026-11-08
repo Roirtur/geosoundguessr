@@ -31,7 +31,8 @@ interface Room {
   roundIndex: number;
   sounds: SoundEntry[];
   sound?: SoundEntry;
-  usedSounds: Set<number>;
+  audioToken?: string;
+  usedSounds: Set<string>;
   mode: 'casual' | 'curated';
   ready: Set<string>;
   guesses: Map<string, GuessView>;
@@ -44,7 +45,7 @@ interface Room {
 }
 export interface GameSoundSource {
   pick(count: number, mode: 'casual' | 'curated'): Promise<SoundEntry[]>;
-  replacement(excluded: Set<number>, mode: 'casual' | 'curated'): SoundEntry | undefined;
+  replacement(excluded: Set<string>, mode: 'casual' | 'curated'): SoundEntry | undefined;
 }
 const COLORS = [
   '#45d9ef',
@@ -114,9 +115,10 @@ export class GameEngine {
       serverNow: this.now(),
       deadline: room.deadline,
       preparationDeadline: room.preparationDeadline,
-      playbackUrl: ['preparing', 'guessing'].includes(room.phase)
-        ? room.sound?.previewUrl
-        : undefined,
+      playbackUrl:
+        room.sound && room.audioToken && ['preparing', 'guessing'].includes(room.phase)
+          ? `/api/audio/${room.code}/${room.audioToken}`
+          : undefined,
       reveal: room.reveal,
       mode: room.mode,
       error: room.error,
@@ -125,6 +127,12 @@ export class GameEngine {
   getView(code: string): RoomView | undefined {
     const room = this.rooms.get(code);
     return room ? this.view(room) : undefined;
+  }
+  audioFor(code: string, token: string): SoundEntry | undefined {
+    const room = this.rooms.get(code);
+    return room && ['preparing', 'guessing'].includes(room.phase) && room.audioToken === token
+      ? room.sound
+      : undefined;
   }
   private emit(room: Room): void {
     this.publish(room.code, this.view(room));
@@ -268,7 +276,7 @@ export class GameEngine {
       const sounds = await this.source.pick(room.rounds, room.mode);
       if (room.phase !== 'preparing') return fail('Game start was cancelled.');
       room.sounds = sounds;
-      room.usedSounds = new Set(sounds.map((s) => s.freesoundId));
+      room.usedSounds = new Set(sounds.map((s) => `${s.provider}:${s.providerId}`));
       room.roundIndex = 0;
       room.players.forEach((player) => {
         player.totalScore = 0;
@@ -291,6 +299,7 @@ export class GameEngine {
     this.clearTimer(room);
     room.phase = 'preparing';
     room.sound = room.sounds[room.roundIndex];
+    room.audioToken = randomUUID();
     room.ready.clear();
     room.guesses.clear();
     room.reveal = undefined;
@@ -369,12 +378,14 @@ export class GameEngine {
       sound: {
         title: sound.title,
         category: sound.category,
-        username: sound.username,
+        creator: sound.creator,
+        provider: sound.provider,
         sourceUrl: sound.sourceUrl,
         license: sound.license,
         attribution: sound.attribution,
         approvalStatus: sound.approvalStatus,
         originType: sound.originType,
+        locationEvidence: sound.locationEvidence,
       },
       guesses: [...room.guesses.values()],
     };
@@ -388,7 +399,8 @@ export class GameEngine {
     if (!actor) return fail('Player session not found.');
     const { room } = actor;
     if (!['preparing', 'guessing'].includes(room.phase)) return fail('No active audio to replace.');
-    if (src && src !== room.sound?.previewUrl) return fail('That audio is no longer active.');
+    if (src && src !== `/api/audio/${room.code}/${room.audioToken}`)
+      return fail('That audio is no longer active.');
     return this.replaceAudio(room);
   }
   private replaceAudio(room: Room): ActionResult {
@@ -405,7 +417,7 @@ export class GameEngine {
       this.emit(room);
       return fail(room.error);
     }
-    room.usedSounds.add(replacement.freesoundId);
+    room.usedSounds.add(`${replacement.provider}:${replacement.providerId}`);
     room.sounds[room.roundIndex] = replacement;
     this.prepareRound(room);
     return ok();

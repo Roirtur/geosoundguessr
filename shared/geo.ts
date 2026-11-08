@@ -36,7 +36,7 @@ export function countryAt(location: Coordinates): Country | undefined {
   return countryFeatures.find((country) => booleanPointInPolygon(p, country));
 }
 
-export function parseGeotag(raw: unknown): Coordinates | null {
+export function parseCoordinateString(raw: unknown): Coordinates | null {
   if (typeof raw !== 'string') return null;
   const parts = raw.trim().split(/[\s,]+/);
   if (parts.length !== 2 || parts.some((part) => part === '')) return null;
