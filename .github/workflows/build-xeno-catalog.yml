@@ -1,15 +1,13 @@
-name: Refresh sound catalog
+name: Build Xeno-canto catalog
 
 on:
-  schedule:
-    - cron: '17 3 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  refresh:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -18,13 +16,15 @@ jobs:
           node-version: 22.12.0
           cache: npm
       - run: npm ci
-      - run: npm run catalog:commons
-      - name: Commit changed catalog
+      - run: npm run catalog:xeno
+        env:
+          XENO_CANTO_API_KEY: ${{ secrets.XENO_CANTO_API_KEY }}
+      - name: Commit catalog
         run: |
           git diff --quiet -- server/data/seed-sounds.json || (
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add server/data/seed-sounds.json
-            git commit -m 'Refresh documented Commons sound catalog'
+            git commit -m 'Build documented Xeno-canto sound catalog'
             git push
           )

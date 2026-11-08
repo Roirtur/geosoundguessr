@@ -30,6 +30,16 @@ const server = createServer(app);
 const io = new Server(server, { cors: { origin: true, methods: ['GET', 'POST'] } });
 const pool = new SoundPool();
 await pool.load();
+// A deployed catalog may already be large enough to start a match, but provider
+// discovery must still run so newly configured sources such as Xeno-canto are
+// incorporated without waiting for the pool to become depleted.
+void pool
+  .refresh()
+  .catch((error) =>
+    console.warn(
+      `[sound-pool] Background discovery failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+    ),
+  );
 const game = new GameEngine(pool, (code, view) => io.to(code).emit(EVENTS.roomState, view));
 const port = Number(process.env.PORT || 3001);
 

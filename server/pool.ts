@@ -22,6 +22,7 @@ const RUNTIME_FILE =
 const SEED_FILE = join(process.cwd(), 'server', 'data', 'seed-sounds.json');
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 const AUTOMATIC_CATALOG_LIMIT = 5000;
+const XENO_BOOTSTRAP_PAGES = Math.max(1, Number(process.env.XENO_BOOTSTRAP_PAGES || 8));
 export const soundKey = (sound: SoundCandidate) => `${sound.provider}:${sound.providerId}`;
 export function recordingKey(sound: SoundCandidate): string {
   try {
@@ -356,14 +357,7 @@ export class SoundPool {
         ];
         for (const provider of this.providers.filter((item) => item.enabled)) {
           if (provider.id === 'xeno-canto') {
-            jobs.push(
-              provider.searchSounds({
-                query: 'q:A',
-                category: 'nature',
-                minDuration: 12,
-                maxDuration: 90,
-              }),
-            );
+            jobs.push(this.discoverXeno(provider));
             continue;
           }
           for (const theme of themes.slice(0, 3))
@@ -386,6 +380,28 @@ export class SoundPool {
       }
     })();
     return this.refreshTask;
+  }
+  private async discoverXeno(provider: AudioProvider): Promise<SoundCandidate[]> {
+    const found: SoundCandidate[] = [];
+    for (let page = 1; page <= XENO_BOOTSTRAP_PAGES; page++) {
+      try {
+        const results = await provider.searchSounds({
+          query: 'q:A',
+          category: 'nature',
+          page,
+          minDuration: 12,
+          maxDuration: 90,
+        });
+        if (!results.length) break;
+        found.push(...results);
+      } catch (error) {
+        if (!found.length) throw error;
+        break;
+      }
+      if (page < XENO_BOOTSTRAP_PAGES)
+        await new Promise<void>((resolve) => setTimeout(resolve, 350));
+    }
+    return found;
   }
   private eligible(mode: 'casual' | 'curated'): SoundEntry[] {
     return this.sounds.filter(
